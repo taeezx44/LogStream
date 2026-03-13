@@ -1,0 +1,1853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>LogStream — Distributed Log Search Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #080b0f;
+    --bg2: #0d1117;
+    --bg3: #111820;
+    --bg4: #161e28;
+    --border: #1e2d3d;
+    --border2: #243344;
+    --text: #c8d8e8;
+    --text2: #6a8099;
+    --text3: #3a5068;
+    --accent: #00d4ff;
+    --accent2: #0095cc;
+    --green: #00ff88;
+    --green2: #00cc6a;
+    --amber: #ffb400;
+    --red: #ff4c4c;
+    --red2: #cc3333;
+    --purple: #9d7dff;
+    --pink: #ff6eb4;
+    --mono: 'JetBrains Mono', monospace;
+    --display: 'Syne', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    height: 52px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .logo-icon {
+    width: 28px; height: 28px;
+    background: var(--accent);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--bg);
+    font-family: var(--display);
+    flex-shrink: 0;
+  }
+
+  .logo-text {
+    font-family: var(--display);
+    font-size: 18px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.5px;
+  }
+
+  .logo-text span { color: var(--accent); }
+
+  .header-stats {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+  }
+
+  .hstat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
+  .hstat-val {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--green);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .hstat-lbl {
+    font-size: 10px;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    background: var(--green);
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes pulse {
+    0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0,255,136,0.4); }
+    50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(0,255,136,0); }
+  }
+
+  /* ── Layout ── */
+  .layout {
+    display: grid;
+    grid-template-columns: 220px 1fr 300px;
+    grid-template-rows: auto 1fr;
+    height: calc(100vh - 52px);
+    gap: 0;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    grid-row: 1 / 3;
+  }
+
+  .sidebar-section {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text3);
+    margin-bottom: 10px;
+    font-weight: 500;
+  }
+
+  .agent-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+    margin-bottom: 3px;
+  }
+
+  .agent-item:hover { background: var(--bg4); }
+  .agent-item.active { background: var(--bg4); border: 1px solid var(--border2); }
+
+  .agent-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .agent-dot.online { background: var(--green); }
+  .agent-dot.warn   { background: var(--amber); }
+  .agent-dot.error  { background: var(--red); }
+
+  .agent-name { flex: 1; font-size: 12px; color: var(--text); }
+  .agent-rate { font-size: 11px; color: var(--text2); font-variant-numeric: tabular-nums; }
+
+  .filter-group { margin-bottom: 10px; }
+  .filter-label { font-size: 11px; color: var(--text2); margin-bottom: 5px; }
+
+  .level-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .badge {
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.15s;
+    user-select: none;
+  }
+
+  .badge.error  { background: rgba(255,76,76,0.12);  color: var(--red);    border-color: rgba(255,76,76,0.25); }
+  .badge.warn   { background: rgba(255,180,0,0.12);  color: var(--amber);  border-color: rgba(255,180,0,0.25); }
+  .badge.info   { background: rgba(0,212,255,0.10);  color: var(--accent); border-color: rgba(0,212,255,0.22); }
+  .badge.debug  { background: rgba(157,125,255,0.10);color: var(--purple); border-color: rgba(157,125,255,0.22);}
+  .badge.trace  { background: rgba(106,128,153,0.12);color: var(--text2);  border-color: var(--border); }
+
+  .badge.active { opacity: 1; }
+  .badge.inactive { opacity: 0.35; }
+
+  .time-btn {
+    display: block;
+    width: 100%;
+    padding: 5px 8px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text2);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    text-align: left;
+    margin-bottom: 4px;
+    transition: all 0.15s;
+  }
+
+  .time-btn:hover, .time-btn.active {
+    background: var(--bg4);
+    color: var(--accent);
+    border-color: var(--accent2);
+  }
+
+  /* ── Main area ── */
+  .main-area {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    grid-row: 1 / 3;
+  }
+
+  /* ── Search bar ── */
+  .search-bar {
+    padding: 14px 16px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .search-wrap {
+    flex: 1;
+    position: relative;
+  }
+
+  .search-icon {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text3);
+    font-size: 14px;
+    pointer-events: none;
+  }
+
+  .search-input {
+    width: 100%;
+    padding: 9px 12px 9px 36px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 7px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .search-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(0,212,255,0.08);
+  }
+
+  .search-input::placeholder { color: var(--text3); }
+
+  .btn-primary {
+    padding: 9px 16px;
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: 7px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .btn-primary:hover { background: #33ddff; transform: translateY(-1px); }
+  .btn-primary:active { transform: translateY(0); }
+
+  .btn-secondary {
+    padding: 9px 12px;
+    background: var(--bg3);
+    color: var(--text2);
+    border: 1px solid var(--border2);
+    border-radius: 7px;
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .btn-secondary:hover { background: var(--bg4); color: var(--text); }
+
+  .btn-secondary.active {
+    background: rgba(0,255,136,0.08);
+    color: var(--green);
+    border-color: rgba(0,255,136,0.3);
+  }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex;
+    gap: 2px;
+    padding: 10px 16px 0;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tab {
+    padding: 7px 14px;
+    border-radius: 6px 6px 0 0;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    color: var(--text2);
+    border: 1px solid transparent;
+    border-bottom: none;
+    transition: all 0.15s;
+    background: none;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .tab:hover { color: var(--text); background: var(--bg3); }
+
+  .tab.active {
+    background: var(--bg);
+    color: var(--accent);
+    border-color: var(--border);
+    border-bottom: 1px solid var(--bg);
+    margin-bottom: -1px;
+  }
+
+  /* ── Log stream ── */
+  .log-container {
+    flex: 1;
+    overflow-y: auto;
+    background: var(--bg);
+    padding: 0;
+  }
+
+  .log-container::-webkit-scrollbar { width: 6px; }
+  .log-container::-webkit-scrollbar-track { background: var(--bg2); }
+  .log-container::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  .log-entry {
+    display: grid;
+    grid-template-columns: 165px 50px 120px 1fr 90px;
+    gap: 0;
+    padding: 5px 16px;
+    border-bottom: 1px solid rgba(30,45,61,0.5);
+    cursor: pointer;
+    transition: background 0.1s;
+    align-items: start;
+    animation: fadeIn 0.3s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateX(-4px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  .log-entry:hover { background: var(--bg3); }
+  .log-entry.selected { background: var(--bg3); border-left: 2px solid var(--accent); padding-left: 14px; }
+
+  .log-entry.error  { border-left: 2px solid var(--red);    padding-left: 14px; }
+  .log-entry.warn   { border-left: 2px solid var(--amber);  padding-left: 14px; }
+  .log-entry.info   { border-left: 2px solid transparent; }
+  .log-entry.debug  { border-left: 2px solid transparent; opacity: 0.75; }
+  .log-entry.trace  { border-left: 2px solid transparent; opacity: 0.55; }
+
+  .log-ts   { color: var(--text3); font-size: 11px; padding-top: 1px; font-variant-numeric: tabular-nums; }
+  .log-lvl  { font-size: 11px; font-weight: 700; }
+
+  .log-lvl.ERROR { color: var(--red); }
+  .log-lvl.WARN  { color: var(--amber); }
+  .log-lvl.INFO  { color: var(--accent); }
+  .log-lvl.DEBUG { color: var(--purple); }
+  .log-lvl.TRACE { color: var(--text3); }
+
+  .log-svc  { color: var(--text2); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log-msg  { color: var(--text); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log-msg mark { background: rgba(0,212,255,0.2); color: var(--accent); border-radius: 2px; }
+  .log-host { color: var(--text3); font-size: 11px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .log-header {
+    display: grid;
+    grid-template-columns: 165px 50px 120px 1fr 90px;
+    gap: 0;
+    padding: 6px 16px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text3);
+    font-weight: 500;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  /* ── Chart tab ── */
+  .chart-tab {
+    flex: 1;
+    overflow-y: auto;
+    background: var(--bg);
+    padding: 20px;
+    display: none;
+  }
+
+  .chart-tab.active { display: block; }
+
+  .chart-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .chart-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+
+  .chart-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text3);
+    margin-bottom: 14px;
+    font-weight: 500;
+  }
+
+  canvas { width: 100% !important; }
+
+  /* ── Right panel ── */
+  .right-panel {
+    background: var(--bg2);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    grid-row: 1 / 3;
+  }
+
+  .panel-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text3);
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+  }
+
+  /* ── Metrics ── */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .metric-card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+
+  .metric-val {
+    font-size: 20px;
+    font-weight: 700;
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+
+  .metric-val.green  { color: var(--green); }
+  .metric-val.amber  { color: var(--amber); }
+  .metric-val.red    { color: var(--red); }
+  .metric-val.accent { color: var(--accent); }
+
+  .metric-lbl {
+    font-size: 10px;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-top: 2px;
+  }
+
+  /* ── Sparkline ── */
+  .spark-wrap {
+    padding: 12px 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .spark-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text3);
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+
+  /* ── Detail panel ── */
+  .detail-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+  }
+
+  .detail-panel::-webkit-scrollbar { width: 4px; }
+  .detail-panel::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  .detail-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text3);
+    margin-bottom: 10px;
+    font-weight: 500;
+  }
+
+  .detail-empty {
+    color: var(--text3);
+    font-size: 12px;
+    text-align: center;
+    margin-top: 24px;
+    line-height: 1.6;
+  }
+
+  .detail-card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 8px;
+  }
+
+  .detail-kv {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 6px;
+    gap: 8px;
+  }
+
+  .detail-key { color: var(--text2); font-size: 11px; flex-shrink: 0; }
+
+  .detail-val {
+    color: var(--text);
+    font-size: 11px;
+    text-align: right;
+    word-break: break-all;
+  }
+
+  .detail-msg {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 10px;
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.5;
+    margin-bottom: 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .detail-json {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 10px;
+    font-size: 11px;
+    line-height: 1.6;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .json-key   { color: var(--accent); }
+  .json-str   { color: var(--green); }
+  .json-num   { color: var(--amber); }
+  .json-bool  { color: var(--red); }
+  .json-null  { color: var(--text3); }
+
+  /* ── Ingest Tab ── */
+  .ingest-tab {
+    flex: 1;
+    overflow-y: auto;
+    background: var(--bg);
+    padding: 20px;
+    display: none;
+  }
+
+  .ingest-tab.active { display: block; }
+
+  .ingest-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .form-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+
+  .form-card h3 {
+    font-family: var(--display);
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 16px;
+  }
+
+  .form-row { margin-bottom: 12px; }
+
+  .form-row label {
+    display: block;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text3);
+    margin-bottom: 5px;
+    font-weight: 500;
+  }
+
+  .form-row input, .form-row select, .form-row textarea {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 5px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .form-row input:focus, .form-row select:focus, .form-row textarea:focus {
+    border-color: var(--accent);
+  }
+
+  .form-row select option { background: var(--bg3); }
+  .form-row textarea { resize: vertical; min-height: 80px; }
+
+  .ingest-terminal {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 12px;
+    font-size: 11px;
+    line-height: 1.7;
+    height: 220px;
+    overflow-y: auto;
+    margin-top: 12px;
+  }
+
+  .ingest-terminal::-webkit-scrollbar { width: 4px; }
+  .ingest-terminal::-webkit-scrollbar-thumb { background: var(--border2); }
+
+  .term-line { display: flex; gap: 8px; }
+  .term-time { color: var(--text3); flex-shrink: 0; }
+  .term-ok   { color: var(--green); }
+  .term-err  { color: var(--red); }
+  .term-info { color: var(--accent); }
+
+  /* ── API Tab ── */
+  .api-tab {
+    flex: 1;
+    overflow-y: auto;
+    background: var(--bg);
+    padding: 20px;
+    display: none;
+  }
+
+  .api-tab.active { display: block; }
+
+  .api-endpoint {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+
+  .api-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .api-header:hover { background: var(--bg3); }
+
+  .method {
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    min-width: 44px;
+    text-align: center;
+  }
+
+  .method.GET    { background: rgba(0,255,136,0.12); color: var(--green); }
+  .method.POST   { background: rgba(0,212,255,0.12); color: var(--accent); }
+  .method.DELETE { background: rgba(255,76,76,0.12);  color: var(--red); }
+
+  .api-path { font-size: 13px; color: var(--text); font-weight: 500; flex: 1; }
+  .api-desc { font-size: 11px; color: var(--text2); }
+
+  .api-body {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    display: none;
+  }
+
+  .api-body.open { display: block; }
+
+  .code-block {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 12px;
+    font-size: 11px;
+    line-height: 1.7;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--text);
+  }
+
+  .code-block .c-comment { color: var(--text3); }
+  .code-block .c-key     { color: var(--accent); }
+  .code-block .c-str     { color: var(--green); }
+  .code-block .c-num     { color: var(--amber); }
+
+  /* ── Scrollbars ── */
+  .log-container::-webkit-scrollbar { width: 6px; }
+
+  /* ── Responsive sparkline canvas ── */
+  #sparkCanvas { display: block; }
+
+  /* ── Status bar ── */
+  .statusbar {
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    padding: 4px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text3);
+    grid-column: 1 / -1;
+    flex-shrink: 0;
+  }
+
+  .statusbar-left, .statusbar-right { display: flex; gap: 16px; align-items: center; }
+  .statusbar span.ok { color: var(--green); }
+  .statusbar span.warn { color: var(--amber); }
+
+  /* ── Highlight in search ── */
+  .hl { background: rgba(0,212,255,0.18); color: var(--accent); border-radius: 2px; padding: 0 1px; }
+
+  /* ── Misc ── */
+  .sep { width: 1px; height: 14px; background: var(--border); }
+
+  .ingest-live {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: var(--text3);
+  }
+
+  .live-dot {
+    width: 6px; height: 6px;
+    background: var(--green);
+    border-radius: 50%;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">L</div>
+    <div class="logo-text">Log<span>Stream</span></div>
+    <div style="margin-left:8px; font-size:10px; color:var(--text3); letter-spacing:0.08em;">DISTRIBUTED SEARCH ENGINE</div>
+  </div>
+  <div class="header-stats">
+    <div class="hstat">
+      <div class="hstat-val" id="h-total">0</div>
+      <div class="hstat-lbl">Total Logs</div>
+    </div>
+    <div class="sep"></div>
+    <div class="hstat">
+      <div class="hstat-val" id="h-rate" style="color:var(--accent)">0/s</div>
+      <div class="hstat-lbl">Ingest Rate</div>
+    </div>
+    <div class="sep"></div>
+    <div class="hstat">
+      <div class="hstat-val" id="h-agents" style="color:var(--amber)">3</div>
+      <div class="hstat-lbl">Agents</div>
+    </div>
+    <div class="sep"></div>
+    <div style="display:flex; align-items:center; gap:6px;">
+      <div class="status-dot"></div>
+      <span style="font-size:11px; color:var(--green)">LIVE</span>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <!-- Agents -->
+    <div class="sidebar-section">
+      <div class="sidebar-title">Log Agents</div>
+      <div class="agent-item active" onclick="filterAgent('all')">
+        <div class="agent-dot online"></div>
+        <div class="agent-name">All Agents</div>
+        <div class="agent-rate" id="rate-all">—</div>
+      </div>
+      <div class="agent-item" onclick="filterAgent('server-a')">
+        <div class="agent-dot online"></div>
+        <div class="agent-name">server-a</div>
+        <div class="agent-rate" id="rate-a">—</div>
+      </div>
+      <div class="agent-item" onclick="filterAgent('server-b')">
+        <div class="agent-dot online"></div>
+        <div class="agent-name">server-b</div>
+        <div class="agent-rate" id="rate-b">—</div>
+      </div>
+      <div class="agent-item" onclick="filterAgent('server-c')">
+        <div class="agent-dot warn"></div>
+        <div class="agent-name">server-c</div>
+        <div class="agent-rate" id="rate-c">—</div>
+      </div>
+    </div>
+
+    <!-- Level filter -->
+    <div class="sidebar-section">
+      <div class="sidebar-title">Log Level</div>
+      <div class="filter-group">
+        <div class="level-badges" id="levelBadges">
+          <div class="badge error active" onclick="toggleLevel('ERROR')">ERROR</div>
+          <div class="badge warn active" onclick="toggleLevel('WARN')">WARN</div>
+          <div class="badge info active" onclick="toggleLevel('INFO')">INFO</div>
+          <div class="badge debug active" onclick="toggleLevel('DEBUG')">DEBUG</div>
+          <div class="badge trace active" onclick="toggleLevel('TRACE')">TRACE</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Service filter -->
+    <div class="sidebar-section">
+      <div class="sidebar-title">Services</div>
+      <div id="serviceList" style="display:flex; flex-direction:column; gap:3px;"></div>
+    </div>
+
+    <!-- Time range -->
+    <div class="sidebar-section">
+      <div class="sidebar-title">Time Range</div>
+      <button class="time-btn active" onclick="setTimeRange(this, 1)">Last 1 min</button>
+      <button class="time-btn" onclick="setTimeRange(this, 5)">Last 5 min</button>
+      <button class="time-btn" onclick="setTimeRange(this, 15)">Last 15 min</button>
+      <button class="time-btn" onclick="setTimeRange(this, 60)">Last 1 hour</button>
+      <button class="time-btn" onclick="setTimeRange(this, 0)">All time</button>
+    </div>
+
+    <!-- Queue status -->
+    <div class="sidebar-section">
+      <div class="sidebar-title">Queue Status</div>
+      <div style="font-size:11px; color:var(--text2); line-height:1.8;">
+        <div style="display:flex; justify-content:space-between;">
+          <span>Pending</span><span id="q-pending" style="color:var(--accent)">0</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+          <span>Processed</span><span id="q-processed" style="color:var(--green)">0</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+          <span>Failed</span><span id="q-failed" style="color:var(--red)">0</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-top:6px;">
+          <span>Index Size</span><span id="q-index" style="color:var(--text)">0 KB</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-area">
+    <!-- Search bar -->
+    <div class="search-bar">
+      <div class="search-wrap">
+        <span class="search-icon">⌕</span>
+        <input class="search-input" id="searchInput" type="text"
+          placeholder="Search logs... (supports: level:ERROR service:auth message contains)"
+          oninput="onSearch()"
+          onkeydown="if(event.key==='Enter')doSearch()"/>
+      </div>
+      <button class="btn-primary" onclick="doSearch()">Search</button>
+      <button class="btn-secondary" id="liveBtn" onclick="toggleLive()">⏸ Pause</button>
+      <button class="btn-secondary" onclick="clearLogs()">Clear</button>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('logs',this)">Stream</button>
+      <button class="tab" onclick="switchTab('charts',this)">Analytics</button>
+      <button class="tab" onclick="switchTab('ingest',this)">Ingest</button>
+      <button class="tab" onclick="switchTab('api',this)">API Docs</button>
+    </div>
+
+    <!-- Log stream tab -->
+    <div id="tab-logs" style="flex:1; overflow:hidden; display:flex; flex-direction:column;">
+      <div class="log-header">
+        <span>Timestamp</span>
+        <span>Level</span>
+        <span>Service</span>
+        <span>Message</span>
+        <span style="text-align:right">Host</span>
+      </div>
+      <div class="log-container" id="logContainer"></div>
+    </div>
+
+    <!-- Charts tab -->
+    <div id="tab-charts" class="chart-tab">
+      <div class="chart-row">
+        <div class="chart-card">
+          <div class="chart-title">Log Volume / 10s</div>
+          <canvas id="chartVolume" height="120"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Level Distribution</div>
+          <canvas id="chartLevel" height="120"></canvas>
+        </div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-card">
+          <div class="chart-title">Top Services by Volume</div>
+          <canvas id="chartServices" height="120"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Error Rate / 10s</div>
+          <canvas id="chartErrors" height="120"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ingest tab -->
+    <div id="tab-ingest" class="ingest-tab">
+      <div class="ingest-grid">
+        <div class="form-card">
+          <h3>Manual Log Ingest</h3>
+          <div class="form-row">
+            <label>Service Name</label>
+            <input id="ing-service" type="text" value="my-service" placeholder="service name"/>
+          </div>
+          <div class="form-row">
+            <label>Level</label>
+            <select id="ing-level">
+              <option>INFO</option><option>DEBUG</option><option>WARN</option>
+              <option>ERROR</option><option>TRACE</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Host</label>
+            <input id="ing-host" type="text" value="server-a" placeholder="hostname"/>
+          </div>
+          <div class="form-row">
+            <label>Message</label>
+            <textarea id="ing-msg" placeholder="Log message...">User login successful for user_id=1042</textarea>
+          </div>
+          <button class="btn-primary" style="width:100%" onclick="ingestLog()">Ingest Log Entry</button>
+
+          <div class="ingest-terminal" id="ingestTerminal">
+            <div class="term-line"><span class="term-time">[init]</span><span class="term-info">LogStream engine ready. Queue connected.</span></div>
+            <div class="term-line"><span class="term-time">[init]</span><span class="term-ok">Indexer online — 3 shards active</span></div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <h3>Bulk Import (JSON)</h3>
+          <div class="form-row">
+            <label>JSON Array of Log Objects</label>
+            <textarea id="ing-bulk" style="min-height:160px; font-size:11px;">[
+  {"service":"auth","level":"ERROR","message":"JWT expired for user_id=99","host":"server-b"},
+  {"service":"payment","level":"INFO","message":"Stripe webhook received","host":"server-a"},
+  {"service":"api-gw","level":"WARN","message":"Rate limit hit 429","host":"server-c"}
+]</textarea>
+          </div>
+          <button class="btn-primary" style="width:100%; margin-bottom:12px" onclick="bulkIngest()">Import Bulk Logs</button>
+
+          <div class="form-card" style="padding:12px; background:var(--bg3);">
+            <div class="sidebar-title" style="margin-bottom:8px">Agent Simulation</div>
+            <div style="font-size:11px; color:var(--text2); margin-bottom:10px; line-height:1.6">
+              Simulate 3 agents generating logs in realtime at configurable rate.
+            </div>
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+              <label style="font-size:11px; color:var(--text2); white-space:nowrap">Rate (logs/s):</label>
+              <input type="range" min="1" max="20" value="5" id="rateSlider" style="flex:1"
+                oninput="document.getElementById('rateVal').textContent=this.value"/>
+              <span id="rateVal" style="font-size:12px; color:var(--accent); min-width:24px">5</span>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn-primary" style="flex:1" onclick="startAgentSim()">Start Agents</button>
+              <button class="btn-secondary" style="flex:1" onclick="stopAgentSim()">Stop Agents</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- API Docs tab -->
+    <div id="tab-api" class="api-tab">
+      <div style="font-family:var(--display); font-size:22px; font-weight:800; color:#fff; margin-bottom:6px;">API Reference</div>
+      <div style="font-size:12px; color:var(--text2); margin-bottom:20px;">Base URL: <span style="color:var(--accent)">http://localhost:3000/api/v1</span></div>
+
+      <!-- Ingest -->
+      <div class="api-endpoint">
+        <div class="api-header" onclick="toggleApi(this)">
+          <span class="method POST">POST</span>
+          <span class="api-path">/logs/ingest</span>
+          <span class="api-desc">Ingest single log entry</span>
+          <span style="color:var(--text3); margin-left:auto">▾</span>
+        </div>
+        <div class="api-body">
+          <div style="font-size:11px; color:var(--text2); margin-bottom:8px;">Request Body:</div>
+          <div class="code-block"><span class="c-comment">// POST /api/v1/logs/ingest</span>
+{
+  <span class="c-key">"service"</span>: <span class="c-str">"auth-service"</span>,
+  <span class="c-key">"level"</span>:   <span class="c-str">"ERROR"</span>,
+  <span class="c-key">"message"</span>: <span class="c-str">"Database connection timeout"</span>,
+  <span class="c-key">"host"</span>:    <span class="c-str">"server-a"</span>,
+  <span class="c-key">"meta"</span>:    { <span class="c-key">"req_id"</span>: <span class="c-str">"abc123"</span>, <span class="c-key">"latency_ms"</span>: <span class="c-num">342</span> }
+}
+
+<span class="c-comment">// 200 Response</span>
+{ <span class="c-key">"ok"</span>: <span class="c-bool">true</span>, <span class="c-key">"id"</span>: <span class="c-str">"log_1720000001_xyz"</span>, <span class="c-key">"indexed_at"</span>: <span class="c-str">"2025-01-01T00:00:01Z"</span> }</div>
+        </div>
+      </div>
+
+      <!-- Bulk -->
+      <div class="api-endpoint">
+        <div class="api-header" onclick="toggleApi(this)">
+          <span class="method POST">POST</span>
+          <span class="api-path">/logs/bulk</span>
+          <span class="api-desc">Bulk ingest up to 10,000 logs</span>
+          <span style="color:var(--text3); margin-left:auto">▾</span>
+        </div>
+        <div class="api-body">
+          <div class="code-block"><span class="c-comment">// POST /api/v1/logs/bulk</span>
+{
+  <span class="c-key">"logs"</span>: [
+    { <span class="c-key">"service"</span>: <span class="c-str">"api-gw"</span>, <span class="c-key">"level"</span>: <span class="c-str">"INFO"</span>, <span class="c-key">"message"</span>: <span class="c-str">"GET /health 200"</span> },
+    { <span class="c-key">"service"</span>: <span class="c-str">"worker"</span>, <span class="c-key">"level"</span>: <span class="c-str">"WARN"</span>, <span class="c-key">"message"</span>: <span class="c-str">"Queue depth 8400"</span> }
+  ]
+}
+
+<span class="c-comment">// 200 Response</span>
+{ <span class="c-key">"ok"</span>: <span class="c-bool">true</span>, <span class="c-key">"ingested"</span>: <span class="c-num">2</span>, <span class="c-key">"failed"</span>: <span class="c-num">0</span> }</div>
+        </div>
+      </div>
+
+      <!-- Search -->
+      <div class="api-endpoint">
+        <div class="api-header" onclick="toggleApi(this)">
+          <span class="method GET">GET</span>
+          <span class="api-path">/logs/search</span>
+          <span class="api-desc">Full-text search with filters</span>
+          <span style="color:var(--text3); margin-left:auto">▾</span>
+        </div>
+        <div class="api-body">
+          <div class="code-block"><span class="c-comment">// GET /api/v1/logs/search</span>
+<span class="c-key">Query params:</span>
+  q        = <span class="c-str">"database timeout"</span>    <span class="c-comment">// full-text</span>
+  level    = <span class="c-str">"ERROR,WARN"</span>           <span class="c-comment">// comma-sep</span>
+  service  = <span class="c-str">"auth-service"</span>
+  host     = <span class="c-str">"server-a"</span>
+  from     = <span class="c-str">"2025-01-01T00:00:00Z"</span>
+  to       = <span class="c-str">"2025-01-01T01:00:00Z"</span>
+  limit    = <span class="c-num">100</span>
+  offset   = <span class="c-num">0</span>
+
+<span class="c-comment">// 200 Response</span>
+{
+  <span class="c-key">"total"</span>:  <span class="c-num">342</span>,
+  <span class="c-key">"hits"</span>:   [ { <span class="c-key">"id"</span>: <span class="c-str">"..."</span>, <span class="c-key">"score"</span>: <span class="c-num">0.97</span>, <span class="c-key">"log"</span>: {...} } ],
+  <span class="c-key">"took_ms"</span>: <span class="c-num">3</span>
+}</div>
+        </div>
+      </div>
+
+      <!-- Stream -->
+      <div class="api-endpoint">
+        <div class="api-header" onclick="toggleApi(this)">
+          <span class="method GET">GET</span>
+          <span class="api-path">/logs/stream</span>
+          <span class="api-desc">SSE realtime stream</span>
+          <span style="color:var(--text3); margin-left:auto">▾</span>
+        </div>
+        <div class="api-body">
+          <div class="code-block"><span class="c-comment">// GET /api/v1/logs/stream?level=ERROR&service=auth</span>
+<span class="c-comment">// Response: text/event-stream (SSE)</span>
+
+<span class="c-key">data:</span> { <span class="c-key">"id"</span>:<span class="c-str">"log_xyz"</span>, <span class="c-key">"level"</span>:<span class="c-str">"ERROR"</span>, <span class="c-key">"message"</span>:<span class="c-str">"..."</span> }
+<span class="c-key">data:</span> { <span class="c-key">"id"</span>:<span class="c-str">"log_abc"</span>, <span class="c-key">"level"</span>:<span class="c-str">"WARN"</span>, <span class="c-key">"message"</span>:<span class="c-str">"..."</span> }
+
+<span class="c-comment">// JS Client</span>
+const es = new EventSource(<span class="c-str">'/api/v1/logs/stream'</span>)
+es.onmessage = e => console.log(JSON.parse(e.data))</div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="api-endpoint">
+        <div class="api-header" onclick="toggleApi(this)">
+          <span class="method GET">GET</span>
+          <span class="api-path">/logs/stats</span>
+          <span class="api-desc">Aggregated stats & metrics</span>
+          <span style="color:var(--text3); margin-left:auto">▾</span>
+        </div>
+        <div class="api-body">
+          <div class="code-block"><span class="c-comment">// GET /api/v1/logs/stats?from=&to=</span>
+{
+  <span class="c-key">"total"</span>:     <span class="c-num">142800</span>,
+  <span class="c-key">"by_level"</span>:  { <span class="c-key">"ERROR"</span>:<span class="c-num">340</span>, <span class="c-key">"WARN"</span>:<span class="c-num">1820</span>, <span class="c-key">"INFO"</span>:<span class="c-num">98000</span> },
+  <span class="c-key">"by_service"</span>: { <span class="c-key">"auth"</span>:<span class="c-num">42000</span>, <span class="c-key">"api-gw"</span>:<span class="c-num">78000</span> },
+  <span class="c-key">"ingest_rate"</span>: <span class="c-num">148</span>,
+  <span class="c-key">"index_size_kb"</span>: <span class="c-num">20480</span>
+}</div>
+        </div>
+      </div>
+
+      <!-- Delete -->
+      <div class="api-endpoint">
+        <div class="api-header" onclick="toggleApi(this)">
+          <span class="method DELETE">DELETE</span>
+          <span class="api-path">/logs</span>
+          <span class="api-desc">Delete logs by query or time range</span>
+          <span style="color:var(--text3); margin-left:auto">▾</span>
+        </div>
+        <div class="api-body">
+          <div class="code-block"><span class="c-comment">// DELETE /api/v1/logs</span>
+{
+  <span class="c-key">"service"</span>: <span class="c-str">"old-service"</span>,
+  <span class="c-key">"before"</span>:  <span class="c-str">"2024-01-01T00:00:00Z"</span>
+}
+
+<span class="c-comment">// 200 Response</span>
+{ <span class="c-key">"deleted"</span>: <span class="c-num">8402</span> }</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Right panel -->
+  <aside class="right-panel">
+    <div class="panel-title">System Metrics</div>
+
+    <!-- Metrics grid -->
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-val green" id="m-eps">0</div>
+        <div class="metric-lbl">Events/sec</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-val red" id="m-errors">0</div>
+        <div class="metric-lbl">Errors</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-val accent" id="m-indexed">0</div>
+        <div class="metric-lbl">Indexed</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-val amber" id="m-latency">0ms</div>
+        <div class="metric-lbl">Idx Latency</div>
+      </div>
+    </div>
+
+    <!-- Sparkline -->
+    <div class="spark-wrap">
+      <div class="spark-title">Ingest Rate (60s)</div>
+      <canvas id="sparkCanvas" height="50"></canvas>
+    </div>
+
+    <!-- Log detail -->
+    <div style="padding:12px 12px 6px; border-top:1px solid var(--border); margin-top:12px;">
+      <div class="detail-title">Log Detail</div>
+    </div>
+    <div class="detail-panel" id="detailPanel">
+      <div class="detail-empty">Click any log entry<br/>to view full details</div>
+    </div>
+  </aside>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+// ──────────────────────────────────────────────
+//  STATE
+// ──────────────────────────────────────────────
+const SERVICES = ['auth-service','api-gateway','payment','worker','scheduler',
+                  'notification','file-upload','cache','db-proxy','mailer'];
+const HOSTS    = ['server-a','server-b','server-c'];
+const LEVELS   = ['TRACE','DEBUG','INFO','WARN','ERROR'];
+const WEIGHTS  = [5, 10, 60, 15, 10];  // probability weights for levels
+
+const MESSAGES = {
+  'auth-service':   ['User login successful','JWT token issued','Invalid credentials for user','Session expired','OAuth callback received','Password reset requested','2FA verified','Login attempt blocked'],
+  'api-gateway':    ['GET /health 200 3ms','POST /api/users 201 45ms','GET /products 200 12ms','Rate limit exceeded 429','Upstream timeout 504','Request routed to backend','CORS preflight ok','Response cached'],
+  'payment':        ['Stripe webhook received','Charge successful $49.99','Payment declined card_id=x92','Refund processed $12.00','Invoice generated #INV-4421','3DS authentication ok','Subscription renewed','Payout scheduled'],
+  'worker':         ['Job completed in 230ms','Queue depth 8400 high','Task retried attempt 2/3','Cron job started cleanup','Dead letter queue 12 items','Worker spawned pid=4821','Batch processed 500 records','Timeout processing task_id=99'],
+  'scheduler':      ['Scheduled task run OK','Next run in 3600s','Task missed SLA by 12s','Dependency not ready','Lock acquired','Lock released','Heartbeat OK','Task cancelled by admin'],
+  'notification':   ['Email sent to user@domain.com','Push notification delivered','SMS queued +66812345678','Template rendered ok','Bounce recorded for addr','Unsubscribe processed','Delivery confirmed','Webhook notified'],
+  'file-upload':    ['File uploaded 2.3MB','Virus scan passed','S3 upload complete','Thumbnail generated','File deleted by user','Upload resumable checkpoint','Storage quota 89%','CDN invalidation queued'],
+  'cache':          ['Cache HIT key=user:1042','Cache MISS key=product:99','TTL expired flushed','Eviction LRU 400 entries','Redis connection ok','Cache warmed 1200 keys','Memory 78% used','Replica lag 45ms'],
+  'db-proxy':       ['Query executed 4ms','Slow query 2100ms detected','Connection pool 92% full','Replication lag 180ms','Deadlock detected rolled back','Index rebuild started','Vacuum analyze complete','Failover to replica'],
+  'mailer':         ['SMTP connected','Mail queued id=m_4421','Bounce rate 0.8%','Sending limit OK','DKIM signed','SPF check pass','Attachment stripped','Delivery delayed retry 2/5'],
+};
+
+let allLogs     = [];
+let filteredLog = [];
+let logIdCounter = 0;
+let totalIngested= 0;
+let totalErrors  = 0;
+let liveMode     = true;
+let agentSimId   = null;
+let activeAgent  = 'all';
+let activeLevels = new Set(['ERROR','WARN','INFO','DEBUG','TRACE']);
+let activeServices = new Set(SERVICES);
+let searchQuery  = '';
+let timeRangeMin = 1;
+let rateHistory  = new Array(60).fill(0);
+let volumeHistory= [];
+let errorHistory = [];
+let ingestSinceLastTick = 0;
+let currentTab   = 'logs';
+let charts       = {};
+let serviceRates = {all:0,'server-a':0,'server-b':0,'server-c':0};
+let agentCounts  = {'server-a':0,'server-b':0,'server-c':0};
+let processed    = 0;
+let failed       = 0;
+let indexKB      = 0;
+let levelCounts  = {ERROR:0,WARN:0,INFO:0,DEBUG:0,TRACE:0};
+let serviceCounts= {};
+
+// ──────────────────────────────────────────────
+//  LOG GENERATION
+// ──────────────────────────────────────────────
+function weightedLevel() {
+  const r = Math.random()*100;
+  let acc = 0;
+  for(let i=0;i<LEVELS.length;i++){
+    acc += WEIGHTS[i];
+    if(r < acc) return LEVELS[i];
+  }
+  return 'INFO';
+}
+
+function makeLog(overrides={}) {
+  const svc  = overrides.service || SERVICES[Math.floor(Math.random()*SERVICES.length)];
+  const lvl  = overrides.level   || weightedLevel();
+  const host = overrides.host    || HOSTS[Math.floor(Math.random()*HOSTS.length)];
+  const msgs = MESSAGES[svc] || ['System event occurred'];
+  let msg    = overrides.message || msgs[Math.floor(Math.random()*msgs.length)];
+
+  // Inject some realistic metadata into the message
+  if(Math.random()<0.3 && !overrides.message) {
+    const extras = [
+      ` user_id=${Math.floor(Math.random()*9999)}`,
+      ` req_id=${Math.random().toString(36).substr(2,8)}`,
+      ` latency=${Math.floor(Math.random()*500)}ms`,
+      ` status=${[200,201,400,404,500][Math.floor(Math.random()*5)]}`,
+    ];
+    msg += extras[Math.floor(Math.random()*extras.length)];
+  }
+
+  const now = new Date();
+  return {
+    id:      `log_${++logIdCounter}`,
+    ts:      now,
+    tsStr:   now.toISOString().replace('T',' ').substr(0,23),
+    level:   lvl,
+    service: svc,
+    host,
+    message: msg,
+    meta: overrides.meta || {
+      pid:    Math.floor(Math.random()*65535),
+      thread: `t-${Math.floor(Math.random()*16)}`,
+      ...(Math.random()<0.4 ? {trace_id: Math.random().toString(36).substr(2,16)} : {}),
+      ...(Math.random()<0.3 ? {latency_ms: Math.floor(Math.random()*2000)} : {}),
+    }
+  };
+}
+
+function pushLog(log) {
+  allLogs.push(log);
+  if(allLogs.length > 5000) allLogs.shift();
+
+  // Update counters
+  totalIngested++;
+  ingestSinceLastTick++;
+  processed++;
+  indexKB += Math.random()*0.5;
+  if(log.level==='ERROR') { totalErrors++; }
+  levelCounts[log.level] = (levelCounts[log.level]||0)+1;
+  serviceCounts[log.service] = (serviceCounts[log.service]||0)+1;
+  agentCounts[log.host] = (agentCounts[log.host]||0)+1;
+
+  // Render if passes filter
+  if(liveMode && passesFilter(log) && currentTab==='logs') {
+    renderLogEntry(log, true);
+    trimLogDOM();
+  }
+}
+
+function passesFilter(log) {
+  if(!activeLevels.has(log.level)) return false;
+  if(!activeServices.has(log.service)) return false;
+  if(activeAgent !== 'all' && log.host !== activeAgent) return false;
+  if(timeRangeMin > 0) {
+    const age = (Date.now() - log.ts.getTime()) / 60000;
+    if(age > timeRangeMin) return false;
+  }
+  if(searchQuery) {
+    const q = searchQuery.toLowerCase();
+    if(!log.message.toLowerCase().includes(q) &&
+       !log.service.toLowerCase().includes(q) &&
+       !log.level.toLowerCase().includes(q)) return false;
+  }
+  return true;
+}
+
+// ──────────────────────────────────────────────
+//  DOM RENDERING
+// ──────────────────────────────────────────────
+function renderLogEntry(log, prepend=false) {
+  const el = document.createElement('div');
+  el.className = `log-entry ${log.level.toLowerCase()}`;
+  el.setAttribute('data-id', log.id);
+  el.onclick = () => showDetail(log);
+
+  let msg = escHtml(log.message);
+  if(searchQuery) {
+    const re = new RegExp(`(${escRe(searchQuery)})`,'gi');
+    msg = msg.replace(re,'<mark>$1</mark>');
+  }
+
+  el.innerHTML = `
+    <span class="log-ts">${log.tsStr}</span>
+    <span class="log-lvl ${log.level}">${log.level}</span>
+    <span class="log-svc">${escHtml(log.service)}</span>
+    <span class="log-msg">${msg}</span>
+    <span class="log-host">${escHtml(log.host)}</span>
+  `;
+
+  const container = document.getElementById('logContainer');
+  if(prepend && container.children.length > 0) {
+    container.insertBefore(el, container.firstChild);
+  } else {
+    container.appendChild(el);
+  }
+  return el;
+}
+
+function trimLogDOM() {
+  const c = document.getElementById('logContainer');
+  while(c.children.length > 300) c.removeChild(c.lastChild);
+}
+
+function reRenderLogs() {
+  const c = document.getElementById('logContainer');
+  c.innerHTML = '';
+  const filtered = allLogs.filter(passesFilter).slice(-200);
+  filtered.forEach(l => renderLogEntry(l, false));
+}
+
+function showDetail(log) {
+  document.querySelectorAll('.log-entry').forEach(el => {
+    el.classList.remove('selected');
+    if(el.getAttribute('data-id') === log.id) el.classList.add('selected');
+  });
+
+  const panel = document.getElementById('detailPanel');
+
+  const metaRows = Object.entries(log.meta).map(([k,v]) =>
+    `<div class="detail-kv"><span class="detail-key">${escHtml(k)}</span><span class="detail-val">${escHtml(String(v))}</span></div>`
+  ).join('');
+
+  const jsonStr = syntaxHighlightJSON(log);
+
+  panel.innerHTML = `
+    <div class="detail-title">Log Entry — ${log.id}</div>
+    <div class="detail-card">
+      <div class="detail-kv"><span class="detail-key">timestamp</span><span class="detail-val" style="color:var(--text3)">${log.tsStr}</span></div>
+      <div class="detail-kv"><span class="detail-key">level</span><span class="detail-val log-lvl ${log.level}">${log.level}</span></div>
+      <div class="detail-kv"><span class="detail-key">service</span><span class="detail-val" style="color:var(--accent)">${escHtml(log.service)}</span></div>
+      <div class="detail-kv"><span class="detail-key">host</span><span class="detail-val">${escHtml(log.host)}</span></div>
+    </div>
+    <div style="font-size:10px;color:var(--text3);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.1em;">Message</div>
+    <div class="detail-msg">${escHtml(log.message)}</div>
+    <div style="font-size:10px;color:var(--text3);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.1em;">Metadata</div>
+    <div class="detail-card">${metaRows}</div>
+    <div style="font-size:10px;color:var(--text3);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.1em;">Raw JSON</div>
+    <div class="detail-json">${jsonStr}</div>
+  `;
+}
+
+function syntaxHighlightJSON(log) {
+  const obj = {
+    id: log.id, ts: log.tsStr, level: log.level,
+    service: log.service, host: log.host,
+    message: log.message, meta: log.meta
+  };
+  return JSON.stringify(obj, null, 2)
+    .replace(/("(?:[^"\\]|\\.)*")(\s*:)/g, '<span class="json-key">$1</span>$2')
+    .replace(/:\s*("(?:[^"\\]|\\.)*")/g, ': <span class="json-str">$1</span>')
+    .replace(/:\s*(\d+\.?\d*)/g, ': <span class="json-num">$1</span>')
+    .replace(/:\s*(true|false)/g, ': <span class="json-bool">$1</span>')
+    .replace(/:\s*(null)/g, ': <span class="json-null">$1</span>');
+}
+
+// ──────────────────────────────────────────────
+//  ACTIONS
+// ──────────────────────────────────────────────
+function toggleLive() {
+  liveMode = !liveMode;
+  const btn = document.getElementById('liveBtn');
+  btn.textContent = liveMode ? '⏸ Pause' : '▶ Resume';
+  btn.classList.toggle('active', !liveMode);
+}
+
+function clearLogs() {
+  allLogs = [];
+  document.getElementById('logContainer').innerHTML = '';
+  document.getElementById('detailPanel').innerHTML = '<div class="detail-empty">Click any log entry<br/>to view full details</div>';
+}
+
+function onSearch() {
+  searchQuery = document.getElementById('searchInput').value.trim();
+  if(!searchQuery) reRenderLogs();
+}
+
+function doSearch() {
+  searchQuery = document.getElementById('searchInput').value.trim();
+  reRenderLogs();
+}
+
+function filterAgent(agent) {
+  activeAgent = agent;
+  document.querySelectorAll('.agent-item').forEach((el,i) => {
+    const names = ['all','server-a','server-b','server-c'];
+    el.classList.toggle('active', names[i]===agent);
+  });
+  reRenderLogs();
+}
+
+function toggleLevel(lvl) {
+  if(activeLevels.has(lvl)) {
+    activeLevels.delete(lvl);
+  } else {
+    activeLevels.add(lvl);
+  }
+  document.querySelectorAll('.badge').forEach(b => {
+    const l = b.textContent.trim();
+    b.classList.toggle('active', activeLevels.has(l));
+    b.classList.toggle('inactive', !activeLevels.has(l));
+  });
+  reRenderLogs();
+}
+
+function setTimeRange(btn, mins) {
+  timeRangeMin = mins;
+  document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  reRenderLogs();
+}
+
+function switchTab(tab, btn) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  const tabIds = ['logs','charts','ingest','api'];
+  tabIds.forEach(t => {
+    const el = document.getElementById(`tab-${t}`);
+    if(el) {
+      if(t === 'logs') {
+        el.style.display = (t===tab) ? 'flex' : 'none';
+      } else {
+        el.classList.toggle('active', t===tab);
+      }
+    }
+  });
+
+  if(tab==='charts') updateCharts();
+}
+
+function toggleApi(header) {
+  const body = header.nextElementSibling;
+  body.classList.toggle('open');
+}
+
+// ──────────────────────────────────────────────
+//  INGEST FORMS
+// ──────────────────────────────────────────────
+function ingestLog() {
+  const svc = document.getElementById('ing-service').value.trim() || 'custom-service';
+  const lvl = document.getElementById('ing-level').value;
+  const host= document.getElementById('ing-host').value.trim() || 'server-a';
+  const msg = document.getElementById('ing-msg').value.trim() || 'Log entry';
+
+  if(!SERVICES.includes(svc)) { SERVICES.push(svc); updateServiceList(); }
+
+  const log = makeLog({service:svc, level:lvl, host, message:msg});
+  pushLog(log);
+
+  const term = document.getElementById('ingestTerminal');
+  const ts = new Date().toISOString().substr(11,12);
+  term.innerHTML += `<div class="term-line"><span class="term-time">[${ts}]</span><span class="term-ok">✓ Ingested → ${svc} [${lvl}] "${msg.substr(0,50)}${msg.length>50?'…':''}"</span></div>`;
+  term.scrollTop = term.scrollHeight;
+}
+
+function bulkIngest() {
+  const raw = document.getElementById('ing-bulk').value.trim();
+  const term = document.getElementById('ingestTerminal');
+  const ts = new Date().toISOString().substr(11,12);
+  try {
+    const arr = JSON.parse(raw);
+    if(!Array.isArray(arr)) throw new Error('Not an array');
+    let ok = 0, err = 0;
+    arr.forEach(item => {
+      try {
+        if(!SERVICES.includes(item.service)) { SERVICES.push(item.service); updateServiceList(); }
+        const log = makeLog(item);
+        pushLog(log);
+        ok++;
+      } catch(e) { err++; }
+    });
+    failed += err;
+    term.innerHTML += `<div class="term-line"><span class="term-time">[${ts}]</span><span class="term-ok">✓ Bulk: ${ok} ingested, ${err} failed</span></div>`;
+  } catch(e) {
+    failed++;
+    term.innerHTML += `<div class="term-line"><span class="term-time">[${ts}]</span><span class="term-err">✗ Parse error: ${e.message}</span></div>`;
+  }
+  term.scrollTop = term.scrollHeight;
+}
+
+function startAgentSim() {
+  if(agentSimId) clearInterval(agentSimId);
+  const rate = parseInt(document.getElementById('rateSlider').value) || 5;
+  const interval = Math.round(1000/rate);
+  agentSimId = setInterval(() => {
+    pushLog(makeLog());
+  }, interval);
+  const term = document.getElementById('ingestTerminal');
+  const ts = new Date().toISOString().substr(11,12);
+  term.innerHTML += `<div class="term-line"><span class="term-time">[${ts}]</span><span class="term-info">▶ Agent simulation started @ ${rate} logs/s</span></div>`;
+  term.scrollTop = term.scrollHeight;
+}
+
+function stopAgentSim() {
+  if(agentSimId) { clearInterval(agentSimId); agentSimId = null; }
+  const term = document.getElementById('ingestTerminal');
+  const ts = new Date().toISOString().substr(11,12);
+  term.innerHTML += `<div class="term-line"><span class="term-time">[${ts}]</span><span class="term-err">■ Agent simulation stopped</span></div>`;
+  term.scrollTop = term.scrollHeight;
+}
+
+// ──────────────────────────────────────────────
+//  CHARTS
+// ──────────────────────────────────────────────
+const CHART_OPTS = {
+  responsive: true,
+  animation: { duration: 300 },
+  plugins: { legend: { display: false } },
+  scales: {
+    x: { grid:{color:'rgba(30,45,61,0.8)'}, ticks:{color:'#3a5068',font:{size:10,family:"'JetBrains Mono', monospace"}} },
+    y: { grid:{color:'rgba(30,45,61,0.8)'}, ticks:{color:'#3a5068',font:{size:10,family:"'JetBrains Mono', monospace"}}, beginAtZero:true }
+  }
+};
+
+function initCharts() {
+  const mkOpts = (extra={}) => JSON.parse(JSON.stringify({...CHART_OPTS,...extra}));
+
+  charts.volume = new Chart(document.getElementById('chartVolume'), {
+    type:'bar',
+    data:{ labels:[], datasets:[{label:'Logs',data:[],backgroundColor:'rgba(0,212,255,0.3)',borderColor:'#00d4ff',borderWidth:1}] },
+    options: mkOpts()
+  });
+
+  charts.level = new Chart(document.getElementById('chartLevel'), {
+    type:'doughnut',
+    data:{
+      labels:['ERROR','WARN','INFO','DEBUG','TRACE'],
+      datasets:[{data:[0,0,0,0,0],backgroundColor:['rgba(255,76,76,0.7)','rgba(255,180,0,0.7)','rgba(0,212,255,0.7)','rgba(157,125,255,0.7)','rgba(58,80,104,0.7)'],borderColor:['#ff4c4c','#ffb400','#00d4ff','#9d7dff','#3a5068'],borderWidth:1}]
+    },
+    options:{ responsive:true, plugins:{ legend:{ position:'bottom', labels:{ color:'#6a8099', font:{size:10,family:"'JetBrains Mono',monospace"}, boxWidth:12 } } } }
+  });
+
+  charts.services = new Chart(document.getElementById('chartServices'), {
+    type:'bar',
+    data:{ labels:[], datasets:[{label:'Logs',data:[],backgroundColor:'rgba(0,255,136,0.25)',borderColor:'#00ff88',borderWidth:1}] },
+    options: mkOpts({ indexAxis:'y' })
+  });
+
+  charts.errors = new Chart(document.getElementById('chartErrors'), {
+    type:'line',
+    data:{ labels:[], datasets:[{label:'Errors',data:[],fill:true,backgroundColor:'rgba(255,76,76,0.1)',borderColor:'#ff4c4c',tension:0.4,borderWidth:1.5}] },
+    options: mkOpts()
+  });
+}
+
+function updateCharts() {
+  // Volume chart: last 12 buckets × 10s
+  const buckets = 12;
+  const now = Date.now();
+  const vLabels = [], vData = [];
+  for(let i=buckets-1;i>=0;i--) {
+    const t0 = now - (i+1)*10000, t1 = now - i*10000;
+    vLabels.push(`-${(i)*10}s`);
+    vData.push(allLogs.filter(l => l.ts.getTime()>=t0 && l.ts.getTime()<t1).length);
+  }
+  charts.volume.data.labels = vLabels;
+  charts.volume.data.datasets[0].data = vData;
+  charts.volume.update();
+
+  // Level doughnut
+  const lv = ['ERROR','WARN','INFO','DEBUG','TRACE'].map(l => levelCounts[l]||0);
+  charts.level.data.datasets[0].data = lv;
+  charts.level.update();
+
+  // Services bar
+  const svcEntries = Object.entries(serviceCounts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  charts.services.data.labels = svcEntries.map(e=>e[0]);
+  charts.services.data.datasets[0].data = svcEntries.map(e=>e[1]);
+  charts.services.update();
+
+  // Error rate: last 12 × 10s
+  const eData = [];
+  for(let i=buckets-1;i>=0;i--) {
+    const t0 = now - (i+1)*10000, t1 = now - i*10000;
+    eData.push(allLogs.filter(l => l.level==='ERROR' && l.ts.getTime()>=t0 && l.ts.getTime()<t1).length);
+  }
+  charts.errors.data.labels = vLabels;
+  charts.errors.data.datasets[0].data = eData;
+  charts.errors.update();
+}
+
+// ──────────────────────────────────────────────
+//  SPARKLINE
+// ──────────────────────────────────────────────
+function drawSparkline() {
+  const canvas = document.getElementById('sparkCanvas');
+  canvas.width = canvas.offsetWidth || 260;
+  canvas.height = 50;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  const data = rateHistory.slice(-40);
+  const max = Math.max(...data, 1);
+  const w = canvas.width, h = canvas.height;
+  const step = w / (data.length-1);
+
+  ctx.beginPath();
+  ctx.strokeStyle = '#00d4ff';
+  ctx.lineWidth = 1.5;
+  data.forEach((v,i) => {
+    const x = i*step;
+    const y = h - (v/max)*(h-6) - 3;
+    i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+
+  // Fill
+  ctx.lineTo((data.length-1)*step, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(0,212,255,0.07)';
+  ctx.fill();
+}
+
+// ──────────────────────────────────────────────
+//  SERVICE LIST
+// ──────────────────────────────────────────────
+function updateServiceList() {
+  const list = document.getElementById('serviceList');
+  list.innerHTML = '';
+  SERVICES.forEach(svc => {
+    const el = document.createElement('div');
+    el.className = 'agent-item' + (activeServices.has(svc) ? ' active' : '');
+    el.style.padding = '5px 8px';
+    el.innerHTML = `
+      <div class="agent-dot" style="background:${activeServices.has(svc)?'var(--green)':'var(--text3)'}"></div>
+      <div class="agent-name" style="font-size:11px">${svc}</div>
+      <div class="agent-rate" style="font-size:10px">${serviceCounts[svc]||0}</div>
+    `;
+    el.onclick = () => {
+      if(activeServices.has(svc)) activeServices.delete(svc);
+      else activeServices.add(svc);
+      updateServiceList();
+      reRenderLogs();
+    };
+    list.appendChild(el);
+  });
+}
+
+// ──────────────────────────────────────────────
+//  TICKS
+// ──────────────────────────────────────────────
+let lastTickTime = Date.now();
+let tickRate = 0;
+
+setInterval(() => {
+  const now = Date.now();
+  const dt = (now - lastTickTime)/1000;
+  lastTickTime = now;
+  tickRate = Math.round(ingestSinceLastTick / dt);
+  rateHistory.push(tickRate);
+  if(rateHistory.length > 60) rateHistory.shift();
+  ingestSinceLastTick = 0;
+
+  // Update header stats
+  document.getElementById('h-total').textContent = fmt(totalIngested);
+  document.getElementById('h-rate').textContent = tickRate + '/s';
+  document.getElementById('h-agents').textContent = '3';
+
+  // Update metrics
+  document.getElementById('m-eps').textContent = tickRate;
+  document.getElementById('m-errors').textContent = totalErrors;
+  document.getElementById('m-indexed').textContent = fmt(processed);
+  document.getElementById('m-latency').textContent = Math.floor(Math.random()*3+1) + 'ms';
+
+  // Queue stats
+  document.getElementById('q-pending').textContent  = Math.max(0, ingestSinceLastTick);
+  document.getElementById('q-processed').textContent = fmt(processed);
+  document.getElementById('q-failed').textContent    = failed;
+  document.getElementById('q-index').textContent     = Math.round(indexKB) + ' KB';
+
+  // Agent rates
+  const total_r = Object.values(agentCounts).reduce((a,b)=>a+b,0);
+  document.getElementById('rate-all').textContent = tickRate + '/s';
+  ['a','b','c'].forEach(h => {
+    const cnt = agentCounts[`server-${h}`]||0;
+    document.getElementById(`rate-${h}`).textContent = cnt + ' logs';
+  });
+
+  drawSparkline();
+  updateServiceList();
+  if(currentTab==='charts') updateCharts();
+}, 1000);
+
+// ──────────────────────────────────────────────
+//  AUTO-SIMULATION (background)
+// ──────────────────────────────────────────────
+let autoSim = setInterval(() => {
+  const count = Math.floor(Math.random()*3)+1;
+  for(let i=0;i<count;i++) pushLog(makeLog());
+}, 400);
+
+// ──────────────────────────────────────────────
+//  UTILS
+// ──────────────────────────────────────────────
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+function fmt(n) {
+  if(n >= 1e6) return (n/1e6).toFixed(1)+'M';
+  if(n >= 1e3) return (n/1e3).toFixed(1)+'K';
+  return n.toString();
+}
+
+// ──────────────────────────────────────────────
+//  INIT
+// ──────────────────────────────────────────────
+function init() {
+  // Seed with some initial logs
+  for(let i=0;i<60;i++) {
+    const log = makeLog();
+    allLogs.push(log);
+    totalIngested++;
+    processed++;
+    indexKB += Math.random()*0.5;
+    levelCounts[log.level] = (levelCounts[log.level]||0)+1;
+    serviceCounts[log.service] = (serviceCounts[log.service]||0)+1;
+    agentCounts[log.host] = (agentCounts[log.host]||0)+1;
+    logIdCounter++;
+  }
+  reRenderLogs();
+  updateServiceList();
+  initCharts();
+}
+
+init();
+</script>
+</body>
+</html>

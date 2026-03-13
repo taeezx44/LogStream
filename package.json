@@ -1,0 +1,24 @@
+{
+  "name": "logstream",
+  "version": "1.0.0",
+  "description": "Distributed Log Search Engine - A real-time log monitoring and analytics dashboard",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -m http.server 3000",
+    "dev": "python -m http.server 3000",
+    "build": "echo 'No build step required - static site'"
+  },
+  "keywords": [
+    "logging",
+    "monitoring",
+    "analytics",
+    "dashboard",
+    "real-time",
+    "search"
+  ],
+  "author": "LogStream Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
